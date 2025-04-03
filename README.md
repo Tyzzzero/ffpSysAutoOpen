@@ -17,25 +17,50 @@
 
 #### 安装[node.js](https://nodejs.org/zh-cn)
 
+官网下载安装包，默认配置安装
+
 
 #### 安装[playwright](https://github.com/microsoft/playwright)
+
+打开命令行终端，执行命令
+
+
 ```javascript
 npm i playwright
 ```
 
 #### 安装浏览器依赖
+
+打开命令行终端，执行命令
+
 ```javascript
 npx playwright install
 ```
 
 ### 脚本录制
+
+打开命令行终端, 输入命令，`<url>`替换为`系统网址`（各地区可能不同），执行命令
+
 ```javascript
 npx playwright codegen <url>
 ```
-录制完成后，在`Playwright Inspector`窗口中，选择`Target`->`Java`->`Library`，获得通用Java代码
+录制完成后，在`Playwright Inspector`窗口中，选择`Target`->`Java`->`Library`，获得Java代码
+
+
+### 安装[IDEA Community Edition](https://www.jetbrains.com/zh-cn/idea/download/download-thanks.html?platform=windows&code=IIC)
+
+官网下载安装包，默认配置安装
+
+### 下载导入项目
+
+下载本项目，解压缩，导入IDEA
+
 
 ### 项目文件配置
 #### 修改config.properties
+
+修改`src/main/resources`路径下`config.properties`
+
 ```javascript
 # 链接
 url=
@@ -57,7 +82,7 @@ globalTimeout=5000.0
 ```
 #### 继承BaseActivity抽象类
 
-* 继承`org/example/service`路径下`BaseActivity.java`，实现`onStart`方法，将playwright录制代码放入修改
+* 继承`org/example/service`路径下`BaseActivity.java`，实现`onStart`方法，将Playwright录制代码放入修改
 
 #### 新建基础数据文件
 
