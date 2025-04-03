@@ -25,7 +25,7 @@
 打开命令行终端，执行命令
 
 
-```javascript
+```
 npm i playwright
 ```
 
@@ -33,7 +33,7 @@ npm i playwright
 
 打开命令行终端，执行命令
 
-```javascript
+```
 npx playwright install
 ```
 
@@ -41,7 +41,7 @@ npx playwright install
 
 打开命令行终端, 输入命令，`<url>`替换为`系统网址`（各地区可能不同），执行命令
 
-```javascript
+```
 npx playwright codegen <url>
 ```
 录制完成后，在`Playwright Inspector`窗口中，选择`Target`->`Java`->`Library`，获得Java代码
@@ -61,14 +61,14 @@ npx playwright codegen <url>
 
 修改`src/main/resources`路径下`config.properties`
 
-```javascript
-# 链接
+```
+# 网站链接
 url=
     
-# 登录用户名
+# 县级账号登录用户名
 userName=
     
-# 登录密码
+# 县级账号登录密码
 password=
     
 # 默认使用县级账号登录，查询时选择所在乡镇，如"**镇"、"**乡"
@@ -80,17 +80,16 @@ retryCount=3
 # 全局超时时间
 globalTimeout=5000.0
 ```
-#### 继承BaseActivity抽象类
-
-* 继承`org/example/service`路径下`BaseActivity.java`，实现`onStart`方法，将Playwright录制代码放入修改
 
 #### 新建基础数据文件
-
 * 在`src/main/resources`路径下，新建`.xlsx`文件
 * 修改`src/main/java/org/example/entity`路径下`Model.java`，属性与`.xlsx`文件表头对应
 
-#### 创建实现类对象
+#### 继承BaseActivity抽象类（可参考`src/main/java/org/example/service/impl`路径下实现类）
+* 继承`org/example/service`路径下`BaseActivity.java`，实现`onStart`方法，将Playwright录制代码放入修改
+
+#### 创建实现类对象（可参考`src/main/java/org/example/service/impl`路径下实现类）
 * 创建实现类对象, 执行实现类方法`execute()`
 
-#### 执行结果名单输出
+#### 获取执行结果名单
 * 在`target/output`路径下，带`_all`后缀为全量名单，带`_failure`后缀为执行失败名单，带`_success`后缀为执行成功名单
