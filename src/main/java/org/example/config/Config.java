@@ -16,4 +16,5 @@ public class Config {
     private String town;
     private int retryCount;
     private double globalTimeout;
+    private int threadCount;
 }

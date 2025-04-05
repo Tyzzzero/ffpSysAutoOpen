@@ -23,6 +23,7 @@ public class MenuHandler {
                 page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(" 信息采集")).click();
                 page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName(" 务工监测信息采集")).click();
                 page.locator("division-code")
+                        .filter(new Locator.FilterOptions().setHasText("所在乡 所在村 所在组 户类型 识别标准"))
                         .locator("#AAR005 label")
                         // 某些时候打开务工采集页面时间较长，默认配置的超时不满足，未排除原因，针对这步配置超时时间
                         .click(new Locator.ClickOptions().setTimeout(30000));
