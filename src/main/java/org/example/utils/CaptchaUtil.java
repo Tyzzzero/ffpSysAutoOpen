@@ -24,54 +24,67 @@ public class CaptchaUtil {
     private static final Logger log = LoggerFactory.getLogger(CaptchaUtil.class);
     private static final int EXPECTED_LENGTH = 4;
     private static String cachedResult = null;
-    private static final int RECOGNITION_ATTEMPTS = 3; // 每次识别尝试次数
-    private static final float VOTE_THRESHOLD = 0.5f; // 投票阈值
+    private static final int RECOGNITION_ATTEMPTS = 3;
+    private static final float VOTE_THRESHOLD = 0.5f;
 
     /**
      * 封装的方法，用于识别验证码图片并返回识别结果
-     *
-     * @param captchaImagePath 验证码图片的完整路径
-     * @return 识别出的验证码内容，如果识别失败返回空字符串
      */
     public static String recognizeCaptcha(String captchaImagePath) {
+        String threadName = Thread.currentThread().getName();
         try {
-            // 1. 验证图片是否存在
             File captchaImageFile = new File(captchaImagePath);
             if (!captchaImageFile.exists()) {
-                log.error("验证码指定的验证码图片不存在");
+                log.error("[{}] 验证码图片不存在: {}", threadName, captchaImagePath);
                 return "";
             }
-            // 多次识别投票
+
+            log.info("[{}] 开始验证码识别...", threadName);
             Map<String, Integer> resultVotes = new HashMap<>();
             BufferedImage originalImage = ImageIO.read(captchaImageFile);
+
             for (int attempt = 0; attempt < RECOGNITION_ATTEMPTS; attempt++) {
-                // 每次使用不同的预处理参数
                 BufferedImage processedImage = preprocessImage(originalImage, attempt);
                 File processedFile = new File(captchaImagePath + "_processed_" + attempt + ".png");
                 ImageIO.write(processedImage, "png", processedFile);
+
                 try {
                     String result = performOCR(processedFile);
                     String cleanResult = extractAndValidateDigits(result);
                     if (!cleanResult.isEmpty()) {
                         resultVotes.merge(cleanResult, 1, Integer::sum);
+                        log.debug("[{}] 第{}次识别结果: {}", threadName, attempt + 1, cleanResult);
                     }
                 } finally {
                     processedFile.delete();
                 }
             }
-            // 统计投票结果
+
+            // 输出投票统计信息
+            if (!resultVotes.isEmpty()) {
+                StringBuilder voteInfo = new StringBuilder();
+                voteInfo.append(String.format("[%s] 投票统计 => ", threadName));
+                resultVotes.forEach((result, votes) -> 
+                    voteInfo.append(String.format("[%s: %d票] ", result, votes)));
+                log.info(voteInfo.toString());
+            } else {
+                log.warn("[{}] 本次识别没有有效结果", threadName);
+            }
+
             String bestResult = getBestVotedResult(resultVotes);
             if (!bestResult.isEmpty()) {
                 cachedResult = bestResult;
-                log.info("验证码识别成功，结果：{}", bestResult);
+                log.info("[{}] 验证码识别成功 ✓ 结果: {}", threadName, bestResult);
                 return bestResult;
             } else if (cachedResult != null) {
-                log.info("使用缓存的识别结果：{}", cachedResult);
+                log.info("[{}] 使用缓存结果 ⚡ 结果: {}", threadName, cachedResult);
                 return cachedResult;
             }
+
+            log.warn("[{}] 验证码识别失败 ✗", threadName);
             return "";
         } catch (IOException e) {
-            log.error("验证码识别异常：{}", e.getMessage());
+            log.error("[{}] 验证码识别异常: {}", threadName, e.getMessage());
             return cachedResult != null ? cachedResult : "";
         }
     }
@@ -80,6 +93,9 @@ public class CaptchaUtil {
      * 图像预处理，根据尝试次数使用不同的处理参数
      */
     private static BufferedImage preprocessImage(BufferedImage original, int attempt) {
+        String threadName = Thread.currentThread().getName();
+        log.debug("[{}] 开始图像预处理 - 处理方案 {}", threadName, attempt + 1);
+
         int width = original.getWidth();
         int height = original.getHeight();
 
@@ -92,23 +108,21 @@ public class CaptchaUtil {
         g2d.drawImage(original, 0, 0, width * 2, height * 2, null);
         g2d.dispose();
 
-        // 2. 根据尝试次数使用不同的预处理参数
         BufferedImage processedImage = new BufferedImage(scaledImage.getWidth(), scaledImage.getHeight(), 
                                                        BufferedImage.TYPE_BYTE_GRAY);
         Graphics g = processedImage.getGraphics();
         g.drawImage(scaledImage, 0, 0, null);
         g.dispose();
 
-        // 3. 应用不同的图像增强
         switch (attempt) {
-            case 0: // 标准处理
+            case 0:
                 processedImage = enhanceContrast(processedImage, 128, 30);
                 break;
-            case 1: // 高对比度处理
+            case 1:
                 processedImage = enhanceContrast(processedImage, 120, 40);
                 processedImage = applySharpening(processedImage);
                 break;
-            case 2: // 降噪处理
+            case 2:
                 processedImage = enhanceContrast(processedImage, 135, 25);
                 processedImage = applyNoiseReduction(processedImage);
                 break;
@@ -176,16 +190,16 @@ public class CaptchaUtil {
      * 执行OCR识别
      */
     private static String performOCR(File imageFile) throws IOException {
+        String threadName = Thread.currentThread().getName();
         try {
             Tesseract tesseract = new Tesseract();
             tesseract.setDatapath(TESSDATA_PATH);
             tesseract.setVariable("tessedit_char_whitelist", "0123456789");
             tesseract.setVariable("tessedit_pageseg_mode", "7");
-            // 设置DPI提高识别精度
             tesseract.setVariable("user_defined_dpi", "300");
             return tesseract.doOCR(imageFile).trim();
         } catch (TesseractException e) {
-            log.error("OCR识别失败：{}", e.getMessage());
+            log.error("[{}] OCR识别失败: {}", threadName, e.getMessage());
             return "";
         }
     }
@@ -194,7 +208,7 @@ public class CaptchaUtil {
      * 提取并验证数字
      */
     private static String extractAndValidateDigits(String result) {
-        // 1. 提取所有数字
+        String threadName = Thread.currentThread().getName();
         Pattern pattern = Pattern.compile("\\d");
         Matcher matcher = pattern.matcher(result);
         StringBuilder digits = new StringBuilder();
@@ -202,13 +216,13 @@ public class CaptchaUtil {
             digits.append(matcher.group());
         }
 
-        // 2. 验证结果
         String cleanResult = digits.toString();
         if (cleanResult.length() == EXPECTED_LENGTH) {
             return cleanResult;
         }
 
-        log.warn("验证码格式不符合要求：{}", result);
+        log.debug("[{}] 验证码格式不符: 期望{}位数字，实际为{}位", 
+                 threadName, EXPECTED_LENGTH, cleanResult.length());
         return "";
     }
 
@@ -216,22 +230,22 @@ public class CaptchaUtil {
      * 获取投票最多的结果
      */
     private static String getBestVotedResult(Map<String, Integer> votes) {
+        String threadName = Thread.currentThread().getName();
         if (votes.isEmpty()) {
             return "";
         }
 
-        // 找出得票最多的结果
         Map.Entry<String, Integer> maxEntry = Collections.max(votes.entrySet(), Map.Entry.comparingByValue());
         int totalVotes = votes.values().stream().mapToInt(Integer::intValue).sum();
-        
-        // 计算得票率
         float voteRate = (float) maxEntry.getValue() / totalVotes;
-        
-        // 只有当得票率超过阈值时才返回结果
+
+        log.debug("[{}] 最高票结果: {} (得票率: {.2f}%)", 
+                 threadName, maxEntry.getKey(), voteRate * 100);
+
         if (voteRate >= VOTE_THRESHOLD) {
             return maxEntry.getKey();
         }
-        
+
         return "";
     }
 
@@ -239,6 +253,10 @@ public class CaptchaUtil {
      * 清除缓存的结果
      */
     public static void clearCache() {
-        cachedResult = null;
+        String threadName = Thread.currentThread().getName();
+        if (cachedResult != null) {
+            log.debug("[{}] 清除缓存结果: {}", threadName, cachedResult);
+            cachedResult = null;
+        }
     }
 }
