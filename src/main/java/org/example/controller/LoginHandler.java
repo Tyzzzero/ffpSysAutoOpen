@@ -32,16 +32,12 @@ public class LoginHandler {
             while (attempts < config.getMaxCaptchaAttempts() && !loginSuccess) {
                 attempts++;
                 log.info("[{}] 尝试验证码验证，第{}次", threadName, attempts);
-
                 Locator captchaImageLocator = page.locator("#jcaptcha");
-                captchaImageLocator.click();
-
                 String targetPath = "target";
                 File directory = new File(targetPath);
                 if (!directory.exists()) {
                     directory.mkdirs();
                 }
-
                 File captchaImageFile = new File(targetPath + File.separator + "captcha_" + threadName + ".png");
                 captchaImageLocator.screenshot(new Locator.ScreenshotOptions()
                         .setPath(Paths.get(captchaImageFile.getAbsolutePath())));
