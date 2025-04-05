@@ -11,7 +11,6 @@ import org.example.service.BaseActivity;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * @author Tyzzzero
@@ -72,15 +71,15 @@ public class Activity8 extends BaseActivity {
         page.waitForTimeout(500);
         page.locator("li").filter(new Locator.FilterOptions().setHasText(model.getCounty().trim())).click();
         page.locator("#aab087").click();
-        page.locator("#aab087").fill(String.valueOf(model.getSubsidy()));
+        page.locator("#aab087").fill(String.valueOf(model.getAmount()));
         page.locator("#aab089 label").click();
         page.waitForTimeout(500);
-        page.locator("li").filter(new Locator.FilterOptions().setHasText(model.getChannel1().trim())).locator("span").click();
+        page.locator("li").filter(new Locator.FilterOptions().setHasText("第三产业")).locator("span").click();
         page.locator("#aab215 label").click();
         page.waitForTimeout(500);
         page.locator(".ui-dropdown-items > li:nth-child(7)").click();
         page.locator("#aab093").getByTitle("　").locator("label").click();
-        page.locator("#aab093 li").filter(new Locator.FilterOptions().setHasText(model.getChannel3().trim())).locator("span").click();
+        page.locator("#aab093 li").filter(new Locator.FilterOptions().setHasText("其他就业形式")).locator("span").click();
         page.locator("#on_save2").click();
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("确定")).click();
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("保存")).click();

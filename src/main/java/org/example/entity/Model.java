@@ -11,36 +11,54 @@ import lombok.Data;
  */
 @Data
 public class Model {
+    /**
+     * 行编号
+     */
     @ExcelProperty
     private long id;
+    /**
+     * 姓名
+     */
     @ExcelProperty
     private String name;
+    /**
+     * 证件号码
+     */
     @ExcelProperty
     private String idCard;
+    /**
+     * 补贴金额/收入金额
+     */
     @ExcelProperty
-    private int subsidy;
+    private int amount;
+    /**
+     * 务工开始年月
+     */
     @ExcelProperty
     private String startDate;
+    /**
+     * 务工结束年月
+     */
     @ExcelProperty
     private String endDate;
+    /**
+     * 联系方式
+     */
     @ExcelProperty
     private String cellPhone;
+    /**
+     * 省份
+     */
     @ExcelProperty
     private String province;
+    /**
+     * 城市
+     */
     @ExcelProperty
     private String city;
+    /**
+     * 区县
+     */
     @ExcelProperty
     private String county;
-    @ExcelProperty
-    private boolean isWorkingAbroad;
-    @ExcelProperty
-    private String employmentForm;
-    @ExcelProperty
-    private String channel1;
-    @ExcelProperty
-    private String channel2;
-    @ExcelProperty
-    private String channel3;
-    @ExcelProperty
-    private int status;
 }

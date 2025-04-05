@@ -22,7 +22,7 @@ public class Activity1 extends BaseActivity {
         page.getByRole(AriaRole.CELL, new Page.GetByRoleOptions()).locator("a").click();
         page.getByRole(AriaRole.ROW).filter(new Locator.FilterOptions().setHasText(model.getName().trim())).locator("p-dtradiobutton span").click();
         page.locator("#aab094").click();
-        page.locator("#aab094").fill(String.valueOf(model.getSubsidy()));
+        page.locator("#aab094").fill(String.valueOf(model.getAmount()));
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("保存")).click();
         page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("确定")).click();
         page.getByLabel("务工监测信息采集").getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName("")).click();
