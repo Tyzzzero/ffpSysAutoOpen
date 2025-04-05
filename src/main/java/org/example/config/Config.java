@@ -17,4 +17,5 @@ public class Config {
     private int retryCount;
     private double globalTimeout;
     private int threadCount;
+    private int maxCaptchaAttempts;
 }
