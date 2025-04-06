@@ -23,9 +23,6 @@ public class Config {
     @Required("登录密码")
     private String password;
     
-    // 乡镇名称
-    private String town;
-    
     // 重试次数
     private int retryCount = 3;
     
