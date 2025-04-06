@@ -239,7 +239,7 @@ public class CaptchaUtil {
         int totalVotes = votes.values().stream().mapToInt(Integer::intValue).sum();
         float voteRate = (float) maxEntry.getValue() / totalVotes;
 
-        log.debug("[{}] 最高票结果: {} (得票率: {.2f}%)", 
+        log.debug("[{}] 最高票结果: {} (得票率: {}%)",
                  threadName, maxEntry.getKey(), voteRate * 100);
 
         if (voteRate >= VOTE_THRESHOLD) {
