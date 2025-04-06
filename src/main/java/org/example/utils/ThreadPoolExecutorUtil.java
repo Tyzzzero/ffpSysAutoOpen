@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 线程池工具类
+ * @author Tyzzzero
  */
 public class ThreadPoolExecutorUtil {
     private static final AtomicInteger THREAD_NUMBER = new AtomicInteger(1);
