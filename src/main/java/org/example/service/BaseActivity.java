@@ -1,30 +1,30 @@
 package org.example.service;
 
-
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.TimeInterval;
 import com.alibaba.excel.EasyExcel;
+import com.alibaba.excel.ExcelWriter;
+import com.alibaba.excel.write.metadata.WriteSheet;
 import com.alibaba.excel.read.listener.PageReadListener;
 import com.alibaba.fastjson2.JSON;
 import com.microsoft.playwright.*;
 import org.example.config.Config;
 import org.example.config.ConfigLoader;
+import org.example.controller.LoginHandler;
 import org.example.controller.MenuHandler;
 import org.example.controller.ModuleHandler;
 import org.example.entity.MenuEnum;
 import org.example.entity.Model;
 import org.example.entity.ModuleEnum;
-import org.example.utils.CaptchaUtil;
+import org.example.utils.ThreadPoolExecutorUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 import java.io.*;
-import java.nio.file.Paths;
-import java.util.Date;
-import java.util.LinkedList;
-import java.util.List;
-
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author Tyzzzero
@@ -33,128 +33,255 @@ import java.util.List;
 public abstract class BaseActivity {
     private static final Config config = ConfigLoader.loadConfig(Config.class);
     private static final Logger log = LoggerFactory.getLogger(BaseActivity.class);
-    protected static Page page;
     protected static List<Model> modelList;
-    protected static List<Model> failureModelList;
-    protected static List<Model> successModelList;
+    protected static final List<Model> failureModelList = new CopyOnWriteArrayList<>();
+    protected static final List<Model> successModelList = new CopyOnWriteArrayList<>();
     private final ModuleHandler moduleHandler = new ModuleHandler();
     private final MenuHandler menuHandler = new MenuHandler();
-
+    private final LoginHandler loginHandler = new LoginHandler();
+    private static final ThreadLocal<Page> threadLocalPage = new ThreadLocal<>();
+    private static final ConcurrentHashMap<String, Playwright> playwrightMap = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Browser> browserMap = new ConcurrentHashMap<>();
+    private static final AtomicInteger processedCount = new AtomicInteger(0);
 
     // 执行方法
     public void execute(String inputFileName, ModuleEnum module, MenuEnum menu) {
+        TimeInterval timeInterval = new TimeInterval();
+        timeInterval.start("overall");
         try {
-            TimeInterval timeInterval = new TimeInterval();
-            timeInterval.start("overall");
             onCreate(inputFileName);
-            for (int index = 0; index < modelList.size(); index++) {
-                timeInterval.start("single");
-                Model model = modelList.get(index);
-                log.info("start-----");
-                log.info("对象：{}", JSON.toJSONString(model));
-                for (int i = 1; i <= config.getRetryCount(); i++) {
+            log.info("开始处理，总任务数：{}，线程数：{}，模块：{}，菜单：{}", 
+                modelList.size(), config.getThreadCount(), module, menu);
+            
+            ThreadPoolExecutor executor = ThreadPoolExecutorUtil.createThreadPool(config.getThreadCount());
+            int totalSize = modelList.size();
+            int batchSize = (int) Math.ceil((double) totalSize / config.getThreadCount());
+            List<Future<?>> futures = new ArrayList<>();
+            
+            for (int i = 0; i < totalSize; i += batchSize) {
+                int start = i;
+                int end = Math.min(start + batchSize, totalSize);
+                List<Model> subList = modelList.subList(start, end);
+                futures.add(executor.submit(() -> {
+                    String threadName = Thread.currentThread().getName();
                     try {
-                        if (index == 0) {
-                            login();
-                            moduleHandler.openModule(page, module);
-                            menuHandler.openMenu(page, menu);
+                        initPlaywright(threadName);
+                        loginHandler.login(threadLocalPage.get());
+                        moduleHandler.openModule(threadLocalPage.get(), module);
+                        menuHandler.openMenu(threadLocalPage.get(), menu);
+                        
+                        for (Model model : subList) {
+                            processSingleModel(model, threadName, module, menu);
                         }
-                        onStart(page, model);
-                        successModelList.add(model);
-                        log.info("执行成功");
-                        log.info("end-------");
-                        break;
-                    } catch (PlaywrightException e) {
-                        if (e.getMessage().contains("Timeout")) {
-                            log.warn("超时重试，次数：{}", i);
-                            page.reload();
-                            moduleHandler.openModule(page, module);
-                            menuHandler.openMenu(page, menu);
-                            if (i == config.getRetryCount()) {
-                                failureModelList.add(model);
-                                log.error("执行失败，对象：{}", JSON.toJSONString(model));
-                            }
-                            continue;
-                        }
-                        throw e;
+                    } catch (Exception e) {
+                        log.error("[{}] 线程执行异常: {}", threadName, e.getMessage(), e);
+                    } finally {
+                        cleanupPlaywright(threadName);
+                    }
+                }));
+            }
+            
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    log.error("任务被中断: {}", e.getMessage(), e);
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    log.error("任务执行异常: {}", e.getMessage(), e);
+                }
+            }
+            
+            executor.shutdown();
+            if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
+                log.warn("线程池未能在指定时间内关闭，强制关闭");
+                executor.shutdownNow();
+            }
+            
+            onDestroy();
+            long totalTime = timeInterval.intervalMs("overall");
+            log.info("处理完成，总耗时：{}，成功：{}，失败：{}，总处理：{}，总读取：{}，成功率：{}%",
+                formatDuration(totalTime),
+                successModelList.size(),
+                failureModelList.size(),
+                processedCount.get(),
+                modelList.size(),
+                (double) successModelList.size() / modelList.size() * 100);
+        } catch (Exception e) {
+            log.error("系统执行异常: {}", e.getMessage(), e);
+        }
+    }
+
+    private void processSingleModel(Model model, String threadName, ModuleEnum module, MenuEnum menu) {
+        TimeInterval singleInterval = new TimeInterval();
+        singleInterval.start("single");
+        log.info("[{}] 开始处理记录: model={}", threadName, JSON.toJSONString(model));
+        
+        for (int retryCount = 0; retryCount <= config.getRetryCount(); retryCount++) {
+            try {
+                onStart(threadLocalPage.get(), model);
+                addToSuccessList(model);
+                long processTime = singleInterval.intervalMs("single");
+                log.info("[{}] 处理成功: model={}, 耗时: {}, 重试次数: {}",
+                    threadName, JSON.toJSONString(model), formatDuration(processTime), retryCount);
+                break;
+            } catch (Exception e) {
+                log.warn("[{}] 处理失败: model={}, 重试次数: {}, 错误: {}",
+                    threadName, JSON.toJSONString(model), retryCount, e.getMessage());
+                
+                if (retryCount == config.getRetryCount()) {
+                    addToFailureList(model);
+                    log.error("[{}] 最终处理失败: model={}, 错误: {}",
+                        threadName, JSON.toJSONString(model), e.getMessage());
+                } else {
+                    try {
+                        retryOperation(threadName, module, menu);
+                    } catch (Exception retryEx) {
+                        log.error("[{}] 重试操作失败: {}", threadName, retryEx.getMessage(), retryEx);
                     }
                 }
-                log.info("耗时：{}", timeInterval.intervalRestart("single"));
             }
-            outputResult();
-            log.info("总耗时：{}", timeInterval.intervalSecond("overall"));
+        }
+        processedCount.incrementAndGet();
+        long totalTime = singleInterval.intervalMs("single");
+        log.info("[{}] 处理完成: model={}, 总耗时: {}",
+            threadName, JSON.toJSONString(model), formatDuration(totalTime));
+    }
+
+    private void retryOperation(String threadName, ModuleEnum module, MenuEnum menu) {
+        log.info("[{}] 开始重试操作", threadName);
+        threadLocalPage.get().reload();
+        moduleHandler.openModule(threadLocalPage.get(), module);
+        menuHandler.openMenu(threadLocalPage.get(), menu);
+        log.info("[{}] 重试操作完成", threadName);
+    }
+
+    private void initPlaywright(String threadName) {
+        try {
+            Playwright playwright = Playwright.create();
+            playwrightMap.put(threadName, playwright);
+            Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(false));
+            browserMap.put(threadName, browser);
+            BrowserContext context = browser.newContext();
+            Page page = context.newPage();
+            page.setDefaultTimeout(config.getGlobalTimeout());
+            threadLocalPage.set(page);
+            page.navigate(config.getUrl());
+            log.info("[{}] Playwright初始化成功", threadName);
         } catch (Exception e) {
-            log.error("执行异常：{}", e.getStackTrace());
+            log.error("[{}] Playwright初始化失败: {}", threadName, e.getMessage(), e);
+            throw e;
         }
     }
 
-
-    // 初始化程序
-    protected static void onCreate(String inputFileName) {
-        modelList = new LinkedList<>();
-        failureModelList = new LinkedList<>();
-        successModelList = new LinkedList<>();
-        InputStream inputStream = BaseActivity.class.getClassLoader().getResourceAsStream(inputFileName);
-        EasyExcel.read(inputStream, Model.class, new PageReadListener<Model>(modelList::addAll)).sheet().doRead();
-        log.info("读取表格行数：{}", modelList.size());
-        Playwright playwright = Playwright.create();
-        BrowserContext context;
-        Browser browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(false));
-        context = browser.newContext();
-        page = context.newPage();
-        page.setDefaultTimeout(config.getGlobalTimeout());
+    private void cleanupPlaywright(String threadName) {
+        try {
+            Page page = threadLocalPage.get();
+            if (page != null) {
+                page.close();
+                threadLocalPage.remove();
+            }
+            Browser browser = browserMap.remove(threadName);
+            if (browser != null) {
+                browser.close();
+            }
+            Playwright playwright = playwrightMap.remove(threadName);
+            if (playwright != null) {
+                playwright.close();
+            }
+            log.info("[{}] Playwright资源清理完成", threadName);
+        } catch (Exception e) {
+            log.error("[{}] Playwright资源清理失败: {}", threadName, e.getMessage(), e);
+        }
     }
 
+    protected void addToSuccessList(Model model) {
+        successModelList.add(model);
+    }
 
-    // 抽象方法 onStart，由子类实现具体业务逻辑
+    protected void addToFailureList(Model model) {
+        failureModelList.add(model);
+    }
+
+    protected void onCreate(String inputFileName) throws Exception {
+        try {
+            modelList = new ArrayList<>();
+            failureModelList.clear();
+            successModelList.clear();
+            processedCount.set(0);
+            
+            InputStream inputStream = BaseActivity.class.getClassLoader().getResourceAsStream(inputFileName);
+            if (inputStream == null) {
+                throw new FileNotFoundException("找不到输入文件: " + inputFileName);
+            }
+            
+            EasyExcel.read(inputStream, Model.class, new PageReadListener<Model>(dataList -> {
+                modelList.addAll(dataList);
+                log.debug("读取到{}条数据", dataList.size());
+            })).sheet().doRead();
+            
+            log.info("数据读取完成，总条数：{}", modelList.size());
+        } catch (Exception e) {
+            log.error("数据读取失败: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
+
     protected abstract void onStart(Page page, Model model);
 
-
-    // 登录方法
-    protected static void login() {
-        page.navigate(config.getUrl());
-        page.locator("#username").click();
-        page.locator("#username").fill(config.getUserName());
-        page.locator("#password").click();
-        page.locator("#password").fill(config.getPassword());
-        Locator captchaImageLocator = page.locator("#jcaptcha");
-        captchaImageLocator.click();
-        String targetPath = System.getProperty("user.dir") + File.separator + "target";
-        File captchaImageFile = new File(targetPath + File.separator + "captcha.png");
-        captchaImageLocator.screenshot(new Locator.ScreenshotOptions().setPath(Paths.get(captchaImageFile.getAbsolutePath())));
-        page.locator("#jcaptcha_response").click();
-        page.locator("#jcaptcha_response").fill(CaptchaUtil.recognizeCaptcha(captchaImageFile.getAbsolutePath()));
-        page.locator("#jcaptcha_response").press("Enter");
+    protected void onDestroy() throws Exception {
+        try {
+            String date = DateUtil.format(new Date(), "yyyyMMddHHmmss");
+            String fileName = "target/output/" + date + "_result.xlsx";
+            File directory = new File("target/output");
+            if (!directory.exists() && !directory.mkdirs()) {
+                throw new IOException("无法创建输出目录: " + directory.getAbsolutePath());
+            }
+            
+            failureModelList.sort(Comparator.comparing(Model::getId));
+            successModelList.sort(Comparator.comparing(Model::getId));
+            
+            try (ExcelWriter excelWriter = EasyExcel.write(fileName, Model.class).build()) {
+                WriteSheet failureSheet = EasyExcel.writerSheet(0, "失败数据").build();
+                excelWriter.write(failureModelList, failureSheet);
+                
+                WriteSheet successSheet = EasyExcel.writerSheet(1, "成功数据").build();
+                excelWriter.write(successModelList, successSheet);
+                
+                WriteSheet allSheet = EasyExcel.writerSheet(2, "全部数据").build();
+                excelWriter.write(modelList, allSheet);
+            }
+            
+            log.info("结果文件已生成: {}", fileName);
+        } catch (Exception e) {
+            log.error("结果文件生成失败: {}", e.getMessage(), e);
+            throw e;
+        }
     }
 
-
-    // 输出结果
-    protected static void outputResult() {
-        String outputDirPath = System.getProperty("user.dir") + "/target/output";
-        File outputDir = new File(outputDirPath);
-        if (!outputDir.exists()) {
-            outputDir.mkdirs();
+    /**
+     * 格式化耗时
+     * @param milliseconds 毫秒数
+     * @return 格式化的耗时字符串
+     */
+    private String formatDuration(long milliseconds) {
+        long hours = milliseconds / (1000 * 60 * 60);
+        long minutes = (milliseconds % (1000 * 60 * 60)) / (1000 * 60);
+        long seconds = (milliseconds % (1000 * 60)) / 1000;
+        long ms = milliseconds % 1000;
+        
+        StringBuilder sb = new StringBuilder();
+        if (hours > 0) {
+            sb.append(hours).append("小时");
         }
-        try {
-            String dateStr = DateUtil.format(new Date(), "yyyyMMddHHmmss");
-            File failureOutputFile = new File(outputDirPath + "/" + dateStr + "_failure" + ".xlsx");
-            OutputStream failureOutputStream = new FileOutputStream(failureOutputFile);
-            EasyExcel.write(failureOutputStream).head(Model.class).sheet("失败").doWrite(failureModelList);
-            failureOutputStream.close();
-            File successOutputFile = new File(outputDirPath + "/" + dateStr + "_success" + ".xlsx");
-            OutputStream successOutputStream = new FileOutputStream(successOutputFile);
-            EasyExcel.write(successOutputStream).head(Model.class).sheet("完成").doWrite(successModelList);
-            successOutputStream.close();
-            File allOutputFile = new File(outputDirPath + "/" + dateStr + "_all" + ".xlsx");
-            OutputStream allOutputStream = new FileOutputStream(allOutputFile);
-            EasyExcel.write(allOutputStream).head(Model.class).sheet("全部").doWrite(modelList);
-            successOutputStream.close();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        if (minutes > 0 || hours > 0) {
+            sb.append(minutes).append("分钟");
         }
-        log.info("成功条数：{}，失败条数：{}，处理条数：{}，读取条数：{}", successModelList.size(), failureModelList.size(), successModelList.size() + failureModelList.size(), modelList.size());
-        if ((successModelList.size() + failureModelList.size())!= modelList.size()) {
-            log.error("处理条数与读取条数不一致");
+        if (seconds > 0 || minutes > 0 || hours > 0) {
+            sb.append(seconds).append("秒");
         }
+        sb.append(ms).append("毫秒");
+        
+        return sb.toString();
     }
 }
