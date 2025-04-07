@@ -103,7 +103,7 @@ ffpSysAutoOpen/
    ```
 
 #### 1.3 安装IDEA
-1. 下载 [IDEA Community Edition](https://www.jetbrains.com/zh-cn/idea/download)
+1. 下载 [IDEA Community Edition](https://www.jetbrains.com/zh-cn/idea/download/download-thanks.html?platform=windows&code=IIC)
 2. 安装并启动IDEA
 
 ### 2. 项目配置
